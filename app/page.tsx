@@ -4,7 +4,9 @@ import {
   Activity,
   ArrowDownToLine,
   CalendarDays,
+  ExternalLink,
   Eye,
+  Link2,
   Mail,
   MousePointerClick,
   Plus,
@@ -84,7 +86,7 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
             </div>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Email open analytics</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
-              Create multiple campaign pixels, place the generated image tags in emails, and track unique opens without counting repeated IPs twice.
+              Create short campaign pixels and tracked links, then measure unique opens and clicks without counting repeated IPs twice.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -140,6 +142,10 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
             { label: "Unique opens", value: formatNumber(dashboard.uniqueOpens), icon: Users },
             { label: "Duplicate opens", value: formatNumber(dashboard.duplicateOpens), icon: MousePointerClick },
             { label: "Open rate", value: formatPercent(dashboard.openRate), icon: Activity },
+            { label: "Total clicks", value: formatNumber(dashboard.totalClicks), icon: Link2 },
+            { label: "Unique clicks", value: formatNumber(dashboard.uniqueClicks), icon: Users },
+            { label: "Duplicate clicks", value: formatNumber(dashboard.duplicateClicks), icon: MousePointerClick },
+            { label: "Click rate", value: formatPercent(dashboard.clickRate), icon: ExternalLink },
           ].map((metric) => (
             <article key={metric.label} className={`${cardClass()} p-5`}>
               <div className="flex items-center justify-between">
@@ -205,12 +211,13 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                 <Plus className="h-4 w-4" />
               </span>
               <div>
-                <h2 className="text-lg font-semibold">Create campaign pixels</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Add one or many recipients to generate separate image sources.</p>
+                <h2 className="text-lg font-semibold">Create campaign tracking</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Generate short pixel IDs and click-through URLs for one or many recipients.</p>
               </div>
             </div>
             <form action={createCampaignAction} className="space-y-4">
               <input name="name" required maxLength={160} placeholder="Campaign name" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
+              <input name="clickUrl" type="url" placeholder="Click destination URL, e.g. https://example.com/offer" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
               <textarea name="description" rows={3} placeholder="Description" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
               <textarea
                 name="recipients"
@@ -220,7 +227,7 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
               />
               <button className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:-translate-y-0.5 hover:bg-emerald-700">
                 <Mail className="h-4 w-4" />
-                Generate tracking pixels
+                Generate tracking links
               </button>
             </form>
           </div>
@@ -252,10 +259,35 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
         </section>
 
         <section className={`${cardClass()} p-5`}>
+          <h2 className="text-lg font-semibold">Latest clicks</h2>
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-100 dark:border-slate-800">
+            {dashboard.latestClicks.length ? (
+              dashboard.latestClicks.map((event) => (
+                <div key={event.id} className="grid gap-2 border-b border-slate-100 bg-white/60 p-4 last:border-0 dark:border-slate-800 dark:bg-slate-900/55 sm:grid-cols-[1fr_auto]">
+                  <div>
+                    <p className="font-medium">{event.email || event.label || event.campaignName || event.ipAddress}</p>
+                    <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">{event.destinationUrl || "No click destination"}</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                    <CalendarDays className="h-4 w-4" />
+                    {dateTime(event.clickedAt)}
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${event.isUnique ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-200" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>
+                      {event.isUnique ? "Unique" : "Duplicate"}
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="bg-white/50 p-6 text-sm text-slate-500 dark:bg-slate-900/50 dark:text-slate-400">No clicks recorded yet.</p>
+            )}
+          </div>
+        </section>
+
+        <section className={`${cardClass()} p-5`}>
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-lg font-semibold">Recipients and pixel HTML</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Use the image source or full HTML tag in each email message.</p>
+              <h2 className="text-lg font-semibold">Recipients, pixels, and click links</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Use the image source in email HTML and the click URL as your email link href.</p>
             </div>
             <form className="flex w-full gap-2 lg:w-auto">
               <div className="relative flex-1 lg:w-80">
@@ -266,14 +298,16 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
             </form>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-3">Recipient</th>
                   <th className="px-3 py-3">Campaign</th>
                   <th className="px-3 py-3">Opens</th>
+                  <th className="px-3 py-3">Clicks</th>
                   <th className="px-3 py-3">Image source</th>
                   <th className="px-3 py-3">HTML</th>
+                  <th className="px-3 py-3">Click URL</th>
                 </tr>
               </thead>
               <tbody>
@@ -291,6 +325,12 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                       <span className="text-slate-500"> unique</span>
                     </td>
                     <td className="px-3 py-4">
+                      <span className="font-semibold">{recipient.totalClicks}</span>
+                      <span className="text-slate-500"> total</span>
+                      <span className="ml-2 font-semibold text-emerald-600 dark:text-emerald-300">{recipient.uniqueClicks}</span>
+                      <span className="text-slate-500"> unique</span>
+                    </td>
+                    <td className="px-3 py-4">
                       <div className="flex max-w-xs items-center gap-2">
                         <code className="truncate rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{recipient.pixelUrl}</code>
                         <CopyButton value={recipient.pixelUrl} label="Src" />
@@ -298,6 +338,12 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                     </td>
                     <td className="px-3 py-4">
                       <CopyButton value={recipient.pixelHtml} label="HTML" />
+                    </td>
+                    <td className="px-3 py-4">
+                      <div className="flex max-w-xs items-center gap-2">
+                        <code className="truncate rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{recipient.clickUrl}</code>
+                        <CopyButton value={recipient.clickUrl} label="Click" />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -337,7 +383,7 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
             <article key={campaign.id} className={`${cardClass()} p-5`}>
               <h3 className="font-semibold">{campaign.name}</h3>
               <p className="mt-2 line-clamp-2 min-h-10 text-sm text-slate-500 dark:text-slate-400">{campaign.description || "No description"}</p>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
+              <div className="mt-4 grid grid-cols-5 gap-2 text-center text-sm">
                 <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
                   <p className="font-semibold">{campaign.recipients}</p>
                   <p className="text-xs text-slate-500">Pixels</p>
@@ -348,6 +394,14 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                 </div>
                 <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
                   <p className="font-semibold">{campaign.uniqueOpens}</p>
+                  <p className="text-xs text-slate-500">Unique</p>
+                </div>
+                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
+                  <p className="font-semibold">{campaign.totalClicks}</p>
+                  <p className="text-xs text-slate-500">Clicks</p>
+                </div>
+                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
+                  <p className="font-semibold">{campaign.uniqueClicks}</p>
                   <p className="text-xs text-slate-500">Unique</p>
                 </div>
               </div>

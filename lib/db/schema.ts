@@ -16,6 +16,7 @@ export const campaigns = pgTable(
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 160 }).notNull(),
     description: text("description"),
+    clickUrl: text("click_url"),
     slug: varchar("slug", { length: 64 }).notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -84,6 +85,49 @@ export const uniqueOpens = pgTable(
     campaignIdx: index("unique_opens_campaign_id_idx").on(table.campaignId),
     recipientIdx: index("unique_opens_recipient_id_idx").on(table.recipientId),
     firstOpenedAtIdx: index("unique_opens_first_opened_at_idx").on(table.firstOpenedAt),
+  }),
+);
+
+export const clickEvents = pgTable(
+  "click_events",
+  {
+    id: serial("id").primaryKey(),
+    trackingId: varchar("tracking_id", { length: 96 }).notNull(),
+    recipientId: integer("recipient_id").references(() => recipients.id, { onDelete: "set null" }),
+    campaignId: integer("campaign_id").references(() => campaigns.id, { onDelete: "set null" }),
+    ipAddress: varchar("ip_address", { length: 96 }).notNull(),
+    userAgent: text("user_agent"),
+    country: varchar("country", { length: 80 }),
+    destinationUrl: text("destination_url"),
+    isUnique: boolean("is_unique").default(false).notNull(),
+    clickedAt: timestamp("clicked_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    trackingIdx: index("click_events_tracking_id_idx").on(table.trackingId),
+    recipientIdx: index("click_events_recipient_id_idx").on(table.recipientId),
+    campaignIdx: index("click_events_campaign_id_idx").on(table.campaignId),
+    clickedAtIdx: index("click_events_clicked_at_idx").on(table.clickedAt),
+    uniqueFlagIdx: index("click_events_unique_idx").on(table.isUnique),
+    ipIdx: index("click_events_ip_address_idx").on(table.ipAddress),
+  }),
+);
+
+export const uniqueClicks = pgTable(
+  "unique_clicks",
+  {
+    id: serial("id").primaryKey(),
+    trackingId: varchar("tracking_id", { length: 96 }).notNull(),
+    recipientId: integer("recipient_id").references(() => recipients.id, { onDelete: "cascade" }),
+    campaignId: integer("campaign_id").references(() => campaigns.id, { onDelete: "cascade" }),
+    ipAddress: varchar("ip_address", { length: 96 }).notNull(),
+    userAgent: text("user_agent"),
+    firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    trackingIpIdx: uniqueIndex("unique_clicks_tracking_ip_idx").on(table.trackingId, table.ipAddress),
+    campaignIdx: index("unique_clicks_campaign_id_idx").on(table.campaignId),
+    recipientIdx: index("unique_clicks_recipient_id_idx").on(table.recipientId),
+    firstClickedAtIdx: index("unique_clicks_first_clicked_at_idx").on(table.firstClickedAt),
   }),
 );
 

@@ -20,9 +20,20 @@ export async function GET(request: NextRequest) {
     to: request.nextUrl.searchParams.get("to") ?? undefined,
   });
 
-  const header = ["opened_at", "tracking_id", "campaign", "email", "label", "ip_address", "user_agent", "is_unique"];
+  const header = [
+    "event_type",
+    "event_at",
+    "tracking_id",
+    "campaign",
+    "email",
+    "label",
+    "ip_address",
+    "user_agent",
+    "is_unique",
+  ];
   const body = rows.map((row) =>
     [
+      row.eventType,
       row.openedAt,
       row.trackingId,
       row.campaignName,

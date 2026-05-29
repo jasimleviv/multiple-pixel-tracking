@@ -13,6 +13,7 @@ type LocalCampaign = {
   id: number;
   name: string;
   description: string | null;
+  clickUrl: string | null;
   slug: string;
   createdAt: string;
 };
@@ -38,10 +39,24 @@ type LocalOpenEvent = {
   openedAt: string;
 };
 
+type LocalClickEvent = {
+  id: number;
+  trackingId: string;
+  recipientId: number | null;
+  campaignId: number | null;
+  ipAddress: string;
+  userAgent: string | null;
+  country: string | null;
+  destinationUrl: string | null;
+  isUnique: boolean;
+  clickedAt: string;
+};
+
 type LocalStore = {
   campaigns: LocalCampaign[];
   recipients: LocalRecipient[];
   openEvents: LocalOpenEvent[];
+  clickEvents: LocalClickEvent[];
 };
 
 const storePath = path.join(process.cwd(), ".data", "pixeltrack-local.json");
@@ -50,12 +65,22 @@ function localPixelUrl(trackingId: string) {
   return `${getBaseUrl()}/api/open?id=${encodeURIComponent(trackingId)}`;
 }
 
+function localClickUrl(trackingId: string) {
+  return `${getBaseUrl()}/api/click?id=${encodeURIComponent(trackingId)}`;
+}
+
 async function readStore(): Promise<LocalStore> {
   try {
     const content = await readFile(storePath, "utf8");
-    return JSON.parse(content) as LocalStore;
+    const parsed = JSON.parse(content) as Partial<LocalStore>;
+    return {
+      campaigns: parsed.campaigns ?? [],
+      recipients: parsed.recipients ?? [],
+      openEvents: parsed.openEvents ?? [],
+      clickEvents: parsed.clickEvents ?? [],
+    };
   } catch {
-    return { campaigns: [], recipients: [], openEvents: [] };
+    return { campaigns: [], recipients: [], openEvents: [], clickEvents: [] };
   }
 }
 
@@ -85,6 +110,7 @@ function inRange(date: string, range: DateRange) {
 export async function localCreateCampaign(input: {
   name: string;
   description?: string;
+  clickUrl?: string;
   slug: string;
   recipients: { email: string | null; label: string | null; trackingId: string }[];
 }) {
@@ -94,6 +120,7 @@ export async function localCreateCampaign(input: {
     id: nextId(store.campaigns),
     name: input.name,
     description: input.description || null,
+    clickUrl: input.clickUrl || null,
     slug: input.slug,
     createdAt: now,
   };
@@ -111,6 +138,45 @@ export async function localCreateCampaign(input: {
   store.campaigns.unshift(campaign);
   store.recipients.unshift(...recipients);
   await writeStore(store);
+}
+
+export async function localRecordClick(input: {
+  trackingId: string;
+  ipAddress: string;
+  userAgent: string | null;
+  country?: string | null;
+}) {
+  const store = await readStore();
+  const recipient = store.recipients.find((row) => row.trackingId === input.trackingId);
+  const campaign = store.campaigns.find((row) => row.id === recipient?.campaignId);
+  const destinationUrl = campaign?.clickUrl || getBaseUrl();
+  const isUnique = !store.clickEvents.some(
+    (event) => event.trackingId === input.trackingId && event.ipAddress === input.ipAddress,
+  );
+
+  store.clickEvents.unshift({
+    id: nextId(store.clickEvents),
+    trackingId: input.trackingId,
+    recipientId: recipient?.id ?? null,
+    campaignId: recipient?.campaignId ?? null,
+    ipAddress: input.ipAddress,
+    userAgent: input.userAgent,
+    country: input.country ?? null,
+    destinationUrl,
+    isUnique,
+    clickedAt: new Date().toISOString(),
+  });
+
+  await writeStore(store);
+  return destinationUrl;
+}
+
+export async function localGetClickDestination(trackingId: string) {
+  const store = await readStore();
+  const recipient = store.recipients.find((row) => row.trackingId === trackingId);
+  const campaign = store.campaigns.find((row) => row.id === recipient?.campaignId);
+
+  return campaign?.clickUrl || getBaseUrl();
 }
 
 export async function localRecordOpen(input: {
@@ -143,7 +209,9 @@ export async function localRecordOpen(input: {
 export async function localDashboardData(range: DateRange = {}) {
   const store = await readStore();
   const events = store.openEvents.filter((event) => inRange(event.openedAt, range));
+  const clickEvents = store.clickEvents.filter((event) => inRange(event.clickedAt, range));
   const uniqueOpens = events.filter((event) => event.isUnique).length;
+  const uniqueClicks = clickEvents.filter((event) => event.isUnique).length;
   const dayMap = new Map<string, { day: string; opens: number; unique: number }>();
   const agentMap = new Map<string, number>();
 
@@ -162,7 +230,11 @@ export async function localDashboardData(range: DateRange = {}) {
     totalOpens: events.length,
     uniqueOpens,
     duplicateOpens: events.length - uniqueOpens,
+    totalClicks: clickEvents.length,
+    uniqueClicks,
+    duplicateClicks: clickEvents.length - uniqueClicks,
     openRate: store.recipients.length ? (uniqueOpens / store.recipients.length) * 100 : 0,
+    clickRate: store.recipients.length ? (uniqueClicks / store.recipients.length) * 100 : 0,
     recipientCount: store.recipients.length,
     latestOpens: events.slice(0, 12).map((event) => {
       const recipient = store.recipients.find((row) => row.id === event.recipientId);
@@ -173,6 +245,22 @@ export async function localDashboardData(range: DateRange = {}) {
         openedAt: new Date(event.openedAt),
         ipAddress: event.ipAddress,
         userAgent: event.userAgent,
+        isUnique: event.isUnique,
+        campaignName: campaign?.name ?? null,
+        email: recipient?.email ?? null,
+        label: recipient?.label ?? null,
+      };
+    }),
+    latestClicks: clickEvents.slice(0, 12).map((event) => {
+      const recipient = store.recipients.find((row) => row.id === event.recipientId);
+      const campaign = store.campaigns.find((row) => row.id === event.campaignId);
+
+      return {
+        id: event.id,
+        clickedAt: new Date(event.clickedAt),
+        ipAddress: event.ipAddress,
+        userAgent: event.userAgent,
+        destinationUrl: event.destinationUrl,
         isUnique: event.isUnique,
         campaignName: campaign?.name ?? null,
         email: recipient?.email ?? null,
@@ -193,6 +281,7 @@ export async function localCampaigns() {
   return store.campaigns.slice(0, 12).map((campaign) => {
     const recipients = store.recipients.filter((row) => row.campaignId === campaign.id);
     const events = store.openEvents.filter((row) => row.campaignId === campaign.id);
+    const clicks = store.clickEvents.filter((row) => row.campaignId === campaign.id);
 
     return {
       id: campaign.id,
@@ -202,6 +291,8 @@ export async function localCampaigns() {
       recipients: recipients.length,
       totalOpens: events.length,
       uniqueOpens: events.filter((event) => event.isUnique).length,
+      totalClicks: clicks.length,
+      uniqueClicks: clicks.filter((event) => event.isUnique).length,
     };
   });
 }
@@ -222,6 +313,7 @@ export async function localRecipients(range: DateRange = {}) {
   const rows = filtered.slice((page - 1) * pageSize, page * pageSize).map((recipient) => {
     const campaign = store.campaigns.find((row) => row.id === recipient.campaignId);
     const events = store.openEvents.filter((row) => row.trackingId === recipient.trackingId);
+    const clicks = store.clickEvents.filter((row) => row.trackingId === recipient.trackingId);
     const url = localPixelUrl(recipient.trackingId);
 
     return {
@@ -233,8 +325,11 @@ export async function localRecipients(range: DateRange = {}) {
       createdAt: new Date(recipient.createdAt),
       totalOpens: events.length,
       uniqueOpens: events.filter((event) => event.isUnique).length,
+      totalClicks: clicks.length,
+      uniqueClicks: clicks.filter((event) => event.isUnique).length,
       pixelUrl: url,
       pixelHtml: trackingPixelHtml(url),
+      clickUrl: localClickUrl(recipient.trackingId),
     };
   });
 
@@ -250,11 +345,12 @@ export async function localRecipients(range: DateRange = {}) {
 export async function localCsvRows(range: DateRange = {}) {
   const store = await readStore();
 
-  return store.openEvents.filter((event) => inRange(event.openedAt, range)).map((event) => {
+  const openRows = store.openEvents.filter((event) => inRange(event.openedAt, range)).map((event) => {
     const recipient = store.recipients.find((row) => row.id === event.recipientId);
     const campaign = store.campaigns.find((row) => row.id === event.campaignId);
 
     return {
+      eventType: "open",
       openedAt: new Date(event.openedAt),
       trackingId: event.trackingId,
       campaignName: campaign?.name ?? null,
@@ -265,4 +361,23 @@ export async function localCsvRows(range: DateRange = {}) {
       isUnique: event.isUnique,
     };
   });
+
+  const clickRows = store.clickEvents.filter((event) => inRange(event.clickedAt, range)).map((event) => {
+    const recipient = store.recipients.find((row) => row.id === event.recipientId);
+    const campaign = store.campaigns.find((row) => row.id === event.campaignId);
+
+    return {
+      eventType: "click",
+      openedAt: new Date(event.clickedAt),
+      trackingId: event.trackingId,
+      campaignName: campaign?.name ?? null,
+      email: recipient?.email ?? null,
+      label: recipient?.label ?? null,
+      ipAddress: event.ipAddress,
+      userAgent: event.userAgent,
+      isUnique: event.isUnique,
+    };
+  });
+
+  return [...openRows, ...clickRows].sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
 }

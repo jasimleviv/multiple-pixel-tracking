@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
-import { recordOpen } from "@/lib/tracking";
+import { isValidTrackingId, recordOpen } from "@/lib/tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   const ipAddress = getIp(request);
   const limited = rateLimit(`${ipAddress}:open`, 240, 60_000);
 
-  if (limited.allowed && trackingId) {
+  if (limited.allowed && isValidTrackingId(trackingId)) {
     recordOpen({
       trackingId,
       ipAddress,

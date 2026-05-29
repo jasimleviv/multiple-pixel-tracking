@@ -1,13 +1,14 @@
 # PixelTrack
 
-A modern Next.js App Router email open tracking app. It creates campaign-specific 1x1 transparent GIF pixels, records every open event in Vercel Postgres, and separates unique opens from duplicate opens by `(tracking_id, ip_address)`.
+A modern Next.js App Router email tracking app. It creates campaign-specific 1x1 transparent GIF pixels and tracked click URLs, records every event in Postgres, and separates unique activity from duplicate activity by `(tracking_id, ip_address)`.
 
 ## Features
 
 - `/api/open?id=TRACKING_ID` returns a real transparent GIF for email `<img>` tags.
+- `/api/click?id=TRACKING_ID` records a click and redirects to the campaign destination URL.
 - Vercel Postgres with Drizzle ORM and SQL migrations.
 - Campaign creation with one or many generated recipient pixels.
-- Total, unique, duplicate, open-rate, latest-open, user-agent, chart, search, pagination, date filter, CSV export, and copy-to-clipboard UI.
+- Total, unique, duplicate, open-rate, click-rate, latest-open, latest-click, user-agent, chart, search, pagination, date filter, CSV export, and copy-to-clipboard UI.
 - Simple password authentication for the dashboard.
 - Dark mode through system preference.
 
@@ -66,3 +67,10 @@ The pixel endpoint should respond with:
 
 - `Content-Type: image/gif`
 - `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`
+
+New generated tracking IDs are short, usually 8 characters, for URLs like:
+
+```txt
+https://your-domain.com/api/open?id=aB3xYz91
+https://your-domain.com/api/click?id=aB3xYz91
+```
