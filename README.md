@@ -19,6 +19,7 @@ Copy `.env.example` to `.env.local` for local development or configure the same 
 POSTGRES_URL="postgres://..."
 POSTGRES_PRISMA_URL="postgres://..."
 POSTGRES_URL_NON_POOLING="postgres://..."
+DATABASE_URL="postgres://..."
 POSTGRES_USER="default"
 POSTGRES_HOST="..."
 POSTGRES_PASSWORD="..."
@@ -43,7 +44,7 @@ Run migrations after connecting Vercel Postgres:
 npm run db:migrate
 ```
 
-The schema lives in `lib/db/schema.ts`; the initial SQL migration is in `drizzle/0000_initial.sql`.
+The app accepts Supabase or Vercel Marketplace Postgres connection strings through `POSTGRES_URL` or `DATABASE_URL`. The schema lives in `lib/db/schema.ts`; the initial SQL migration is in `drizzle/0000_initial.sql`.
 
 ## Development
 
