@@ -5,14 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatNumber(value: number) {
-  return new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(value);
-}
-
-export function formatPercent(value: number) {
-  return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value)}%`;
-}
-
 export function getBaseUrl() {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
 

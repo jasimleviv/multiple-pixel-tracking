@@ -52,11 +52,19 @@ type LocalClickEvent = {
   clickedAt: string;
 };
 
+type LocalIgnoredClient = {
+  id: number;
+  ipAddress: string;
+  userAgent: string | null;
+  createdAt: string;
+};
+
 type LocalStore = {
   campaigns: LocalCampaign[];
   recipients: LocalRecipient[];
   openEvents: LocalOpenEvent[];
   clickEvents: LocalClickEvent[];
+  ignoredClients: LocalIgnoredClient[];
 };
 
 const storePath = path.join(process.cwd(), ".data", "pixeltrack-local.json");
@@ -78,9 +86,10 @@ async function readStore(): Promise<LocalStore> {
       recipients: parsed.recipients ?? [],
       openEvents: parsed.openEvents ?? [],
       clickEvents: parsed.clickEvents ?? [],
+      ignoredClients: parsed.ignoredClients ?? [],
     };
   } catch {
-    return { campaigns: [], recipients: [], openEvents: [], clickEvents: [] };
+    return { campaigns: [], recipients: [], openEvents: [], clickEvents: [], ignoredClients: [] };
   }
 }
 
@@ -105,6 +114,41 @@ function inRange(date: string, range: DateRange) {
   }
 
   return true;
+}
+
+function isIgnored(store: LocalStore, ipAddress: string) {
+  return store.ignoredClients.some((client) => client.ipAddress === ipAddress);
+}
+
+function visibleOpens(store: LocalStore, range: DateRange = {}) {
+  return store.openEvents.filter((event) => inRange(event.openedAt, range) && !isIgnored(store, event.ipAddress));
+}
+
+function visibleClicks(store: LocalStore, range: DateRange = {}) {
+  return store.clickEvents.filter((event) => inRange(event.clickedAt, range) && !isIgnored(store, event.ipAddress));
+}
+
+export async function localIgnoreClient(input: { ipAddress: string; userAgent: string | null }) {
+  const store = await readStore();
+
+  if (!isIgnored(store, input.ipAddress)) {
+    store.ignoredClients.unshift({
+      id: nextId(store.ignoredClients),
+      ipAddress: input.ipAddress,
+      userAgent: input.userAgent,
+      createdAt: new Date().toISOString(),
+    });
+    await writeStore(store);
+  }
+}
+
+export async function localRemoveIgnoredClient(id: number) {
+  const store = await readStore();
+  const nextIgnoredClients = store.ignoredClients.filter((client) => client.id !== id);
+
+  if (nextIgnoredClients.length !== store.ignoredClients.length) {
+    await writeStore({ ...store, ignoredClients: nextIgnoredClients });
+  }
 }
 
 export async function localCreateCampaign(input: {
@@ -150,6 +194,11 @@ export async function localRecordClick(input: {
   const recipient = store.recipients.find((row) => row.trackingId === input.trackingId);
   const campaign = store.campaigns.find((row) => row.id === recipient?.campaignId);
   const destinationUrl = campaign?.clickUrl || getBaseUrl();
+
+  if (isIgnored(store, input.ipAddress)) {
+    return destinationUrl;
+  }
+
   const isUnique = !store.clickEvents.some(
     (event) => event.trackingId === input.trackingId && event.ipAddress === input.ipAddress,
   );
@@ -187,6 +236,11 @@ export async function localRecordOpen(input: {
 }) {
   const store = await readStore();
   const recipient = store.recipients.find((row) => row.trackingId === input.trackingId);
+
+  if (isIgnored(store, input.ipAddress)) {
+    return;
+  }
+
   const isUnique = !store.openEvents.some(
     (event) => event.trackingId === input.trackingId && event.ipAddress === input.ipAddress,
   );
@@ -208,34 +262,16 @@ export async function localRecordOpen(input: {
 
 export async function localDashboardData(range: DateRange = {}) {
   const store = await readStore();
-  const events = store.openEvents.filter((event) => inRange(event.openedAt, range));
-  const clickEvents = store.clickEvents.filter((event) => inRange(event.clickedAt, range));
-  const uniqueOpens = events.filter((event) => event.isUnique).length;
-  const uniqueClicks = clickEvents.filter((event) => event.isUnique).length;
-  const dayMap = new Map<string, { day: string; opens: number; unique: number }>();
-  const agentMap = new Map<string, number>();
-
-  for (const event of events) {
-    const day = event.openedAt.slice(0, 10);
-    const dayRow = dayMap.get(day) ?? { day, opens: 0, unique: 0 };
-    dayRow.opens += 1;
-    dayRow.unique += event.isUnique ? 1 : 0;
-    dayMap.set(day, dayRow);
-
-    const agent = event.userAgent || "Unknown";
-    agentMap.set(agent, (agentMap.get(agent) ?? 0) + 1);
-  }
+  const events = visibleOpens(store, range);
+  const clickEvents = visibleClicks(store, range);
 
   return {
-    totalOpens: events.length,
-    uniqueOpens,
-    duplicateOpens: events.length - uniqueOpens,
-    totalClicks: clickEvents.length,
-    uniqueClicks,
-    duplicateClicks: clickEvents.length - uniqueClicks,
-    openRate: store.recipients.length ? (uniqueOpens / store.recipients.length) * 100 : 0,
-    clickRate: store.recipients.length ? (uniqueClicks / store.recipients.length) * 100 : 0,
-    recipientCount: store.recipients.length,
+    ignoredClients: store.ignoredClients
+      .map((client) => ({
+        ...client,
+        createdAt: new Date(client.createdAt),
+      }))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
     latestOpens: events.slice(0, 12).map((event) => {
       const recipient = store.recipients.find((row) => row.id === event.recipientId);
       const campaign = store.campaigns.find((row) => row.id === event.campaignId);
@@ -267,34 +303,7 @@ export async function localDashboardData(range: DateRange = {}) {
         label: recipient?.label ?? null,
       };
     }),
-    opensByDay: Array.from(dayMap.values()).sort((a, b) => a.day.localeCompare(b.day)),
-    topUserAgents: Array.from(agentMap.entries())
-      .map(([userAgent, opens]) => ({ userAgent, opens }))
-      .sort((a, b) => b.opens - a.opens)
-      .slice(0, 6),
   };
-}
-
-export async function localCampaigns() {
-  const store = await readStore();
-
-  return store.campaigns.slice(0, 12).map((campaign) => {
-    const recipients = store.recipients.filter((row) => row.campaignId === campaign.id);
-    const events = store.openEvents.filter((row) => row.campaignId === campaign.id);
-    const clicks = store.clickEvents.filter((row) => row.campaignId === campaign.id);
-
-    return {
-      id: campaign.id,
-      name: campaign.name,
-      description: campaign.description,
-      createdAt: new Date(campaign.createdAt),
-      recipients: recipients.length,
-      totalOpens: events.length,
-      uniqueOpens: events.filter((event) => event.isUnique).length,
-      totalClicks: clicks.length,
-      uniqueClicks: clicks.filter((event) => event.isUnique).length,
-    };
-  });
 }
 
 export async function localRecipients(range: DateRange = {}) {
@@ -312,8 +321,8 @@ export async function localRecipients(range: DateRange = {}) {
 
   const rows = filtered.slice((page - 1) * pageSize, page * pageSize).map((recipient) => {
     const campaign = store.campaigns.find((row) => row.id === recipient.campaignId);
-    const events = store.openEvents.filter((row) => row.trackingId === recipient.trackingId);
-    const clicks = store.clickEvents.filter((row) => row.trackingId === recipient.trackingId);
+    const events = visibleOpens(store).filter((row) => row.trackingId === recipient.trackingId);
+    const clicks = visibleClicks(store).filter((row) => row.trackingId === recipient.trackingId);
     const url = localPixelUrl(recipient.trackingId);
 
     return {
@@ -345,7 +354,7 @@ export async function localRecipients(range: DateRange = {}) {
 export async function localCsvRows(range: DateRange = {}) {
   const store = await readStore();
 
-  const openRows = store.openEvents.filter((event) => inRange(event.openedAt, range)).map((event) => {
+  const openRows = visibleOpens(store, range).map((event) => {
     const recipient = store.recipients.find((row) => row.id === event.recipientId);
     const campaign = store.campaigns.find((row) => row.id === event.campaignId);
 
@@ -362,7 +371,7 @@ export async function localCsvRows(range: DateRange = {}) {
     };
   });
 
-  const clickRows = store.clickEvents.filter((event) => inRange(event.clickedAt, range)).map((event) => {
+  const clickRows = visibleClicks(store, range).map((event) => {
     const recipient = store.recipients.find((row) => row.id === event.recipientId);
     const campaign = store.campaigns.find((row) => row.id === event.campaignId);
 

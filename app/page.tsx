@@ -1,26 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  Activity,
   ArrowDownToLine,
-  CalendarDays,
-  ExternalLink,
-  Eye,
-  Link2,
   Mail,
-  MousePointerClick,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
-  Users,
 } from "lucide-react";
-import { createCampaignAction } from "@/app/actions";
+import { createCampaignAction, excludeTrackingClientAction, reincludeTrackingClientAction } from "@/app/actions";
 import { CopyButton } from "@/components/copy-button";
-import { OpenChart } from "@/components/open-chart";
 import { isAuthenticated, isAuthConfigured } from "@/lib/auth";
-import { getCampaigns, getDashboardData, getRecipients } from "@/lib/tracking";
-import { formatNumber, formatPercent } from "@/lib/utils";
+import { getDashboardData, getRecipients } from "@/lib/tracking";
 import { isDatabaseConfigured } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -60,9 +51,8 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
     page: Number(searchParams.page ?? 1),
   };
 
-  const [dashboard, campaigns, recipientPage] = await Promise.all([
+  const [dashboard, recipientPage] = await Promise.all([
     getDashboardData(range),
-    getCampaigns(),
     getRecipients(range),
   ]);
 
@@ -136,103 +126,34 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
           </section>
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: "Total opens", value: formatNumber(dashboard.totalOpens), icon: Eye },
-            { label: "Unique opens", value: formatNumber(dashboard.uniqueOpens), icon: Users },
-            { label: "Duplicate opens", value: formatNumber(dashboard.duplicateOpens), icon: MousePointerClick },
-            { label: "Open rate", value: formatPercent(dashboard.openRate), icon: Activity },
-            { label: "Total clicks", value: formatNumber(dashboard.totalClicks), icon: Link2 },
-            { label: "Unique clicks", value: formatNumber(dashboard.uniqueClicks), icon: Users },
-            { label: "Duplicate clicks", value: formatNumber(dashboard.duplicateClicks), icon: MousePointerClick },
-            { label: "Click rate", value: formatPercent(dashboard.clickRate), icon: ExternalLink },
-          ].map((metric) => (
-            <article key={metric.label} className={`${cardClass()} p-5`}>
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{metric.label}</p>
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-white dark:bg-white dark:text-slate-950">
-                  <metric.icon className="h-4 w-4" />
-                </span>
-              </div>
-              <p className="mt-5 text-3xl font-semibold tracking-tight">{metric.value}</p>
-            </article>
-          ))}
+        <section className={`${cardClass()} p-5`}>
+          <div className="mb-5 flex items-center gap-2">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-white">
+              <Plus className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold">Create campaign tracking</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Generate short pixel IDs and click-through URLs for one or many recipients.</p>
+            </div>
+          </div>
+          <form action={createCampaignAction} className="grid gap-4 lg:grid-cols-2">
+            <input name="name" required maxLength={160} placeholder="Campaign name" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
+            <input name="clickUrl" type="url" placeholder="Click destination URL, e.g. https://example.com/offer" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
+            <textarea name="description" rows={4} placeholder="Description" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
+            <textarea
+              name="recipients"
+              rows={4}
+              placeholder={"Optional: one email or label per line\nalice@example.com\nVIP segment\nnewsletter-batch-02"}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900"
+            />
+            <button className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:-translate-y-0.5 hover:bg-emerald-700 lg:col-span-2">
+              <Mail className="h-4 w-4" />
+              Generate tracking links
+            </button>
+          </form>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[1.35fr_.65fr]">
-          <div className={`${cardClass()} p-5`}>
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Opens by day</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Total and unique open trend.</p>
-              </div>
-              <form className="flex flex-wrap gap-2">
-                <input name="from" type="date" defaultValue={range.from} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-900" />
-                <input name="to" type="date" defaultValue={range.to} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-900" />
-                <button className="h-10 rounded-xl bg-slate-950 px-4 text-sm font-medium text-white dark:bg-white dark:text-slate-950">Filter</button>
-              </form>
-            </div>
-            {dashboard.opensByDay.length ? (
-              <OpenChart data={dashboard.opensByDay} />
-            ) : (
-              <div className="flex h-72 items-center justify-center rounded-xl border border-dashed border-slate-200 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                Waiting for the first tracked open.
-              </div>
-            )}
-          </div>
-
-          <div className={`${cardClass()} p-5`}>
-            <h2 className="text-lg font-semibold">Top user agents</h2>
-            <div className="mt-4 space-y-3">
-              {dashboard.topUserAgents.length ? (
-                dashboard.topUserAgents.map((agent) => (
-                  <div key={agent.userAgent} className="rounded-xl border border-slate-100 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-900/70">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="line-clamp-1 text-sm font-medium">{agent.userAgent}</p>
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-200">
-                        {agent.opens}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  No user agents recorded yet.
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-6 xl:grid-cols-[.85fr_1.15fr]">
-          <div className={`${cardClass()} p-5`}>
-            <div className="mb-5 flex items-center gap-2">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-white">
-                <Plus className="h-4 w-4" />
-              </span>
-              <div>
-                <h2 className="text-lg font-semibold">Create campaign tracking</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Generate short pixel IDs and click-through URLs for one or many recipients.</p>
-              </div>
-            </div>
-            <form action={createCampaignAction} className="space-y-4">
-              <input name="name" required maxLength={160} placeholder="Campaign name" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
-              <input name="clickUrl" type="url" placeholder="Click destination URL, e.g. https://example.com/offer" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
-              <textarea name="description" rows={3} placeholder="Description" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900" />
-              <textarea
-                name="recipients"
-                rows={7}
-                placeholder={"Optional: one email or label per line\nalice@example.com\nVIP segment\nnewsletter-batch-02"}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-900"
-              />
-              <button className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:-translate-y-0.5 hover:bg-emerald-700">
-                <Mail className="h-4 w-4" />
-                Generate tracking links
-              </button>
-            </form>
-          </div>
-
-          <div className={`${cardClass()} p-5`}>
+        <section className={`${cardClass()} p-5`}>
             <h2 className="text-lg font-semibold">Latest opens</h2>
             <div className="mt-4 overflow-hidden rounded-xl border border-slate-100 dark:border-slate-800">
               {dashboard.latestOpens.length ? (
@@ -241,13 +162,19 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                     <div>
                       <p className="font-medium">{event.email || event.label || event.campaignName || event.ipAddress}</p>
                       <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">{event.userAgent || "Unknown user agent"}</p>
+                      <p className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">IP {event.ipAddress} · Opened {dateTime(event.openedAt)}</p>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                      <CalendarDays className="h-4 w-4" />
-                      {dateTime(event.openedAt)}
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400 sm:justify-end">
                       <span className={`rounded-full px-2 py-1 text-xs font-semibold ${event.isUnique ? "bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-200" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>
                         {event.isUnique ? "Unique" : "Duplicate"}
                       </span>
+                      <form action={excludeTrackingClientAction}>
+                        <input type="hidden" name="ipAddress" value={event.ipAddress} />
+                        <input type="hidden" name="userAgent" value={event.userAgent || ""} />
+                        <button className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 dark:border-red-400/30 dark:text-red-200 dark:hover:bg-red-400/10">
+                          Exclude
+                        </button>
+                      </form>
                     </div>
                   </div>
                 ))
@@ -255,7 +182,27 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                 <p className="bg-white/50 p-6 text-sm text-slate-500 dark:bg-slate-900/50 dark:text-slate-400">No opens recorded yet.</p>
               )}
             </div>
-          </div>
+            {dashboard.ignoredClients.length ? (
+              <div className="mt-5">
+                <h3 className="text-sm font-semibold">Excluded clients</h3>
+                <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 dark:border-slate-800">
+                  {dashboard.ignoredClients.map((client) => (
+                    <div key={client.id} className="grid gap-2 border-b border-slate-100 bg-white/60 p-3 last:border-0 dark:border-slate-800 dark:bg-slate-900/55 sm:grid-cols-[1fr_auto]">
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs text-slate-600 dark:text-slate-300">IP {client.ipAddress}</p>
+                        <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">{client.userAgent || "Unknown user agent"}</p>
+                      </div>
+                      <form action={reincludeTrackingClientAction} className="self-center sm:justify-self-end">
+                        <input type="hidden" name="id" value={client.id} />
+                        <button className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-400/30 dark:text-emerald-200 dark:hover:bg-emerald-400/10">
+                          Re-include
+                        </button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
         </section>
 
         <section className={`${cardClass()} p-5`}>
@@ -267,10 +214,9 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                   <div>
                     <p className="font-medium">{event.email || event.label || event.campaignName || event.ipAddress}</p>
                     <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">{event.destinationUrl || "No click destination"}</p>
+                    <p className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">IP {event.ipAddress} · Clicked {dateTime(event.clickedAt)}</p>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                    <CalendarDays className="h-4 w-4" />
-                    {dateTime(event.clickedAt)}
                     <span className={`rounded-full px-2 py-1 text-xs font-semibold ${event.isUnique ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-200" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>
                       {event.isUnique ? "Unique" : "Duplicate"}
                     </span>
@@ -301,8 +247,8 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
             <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 <tr>
-                  <th className="px-3 py-3">Recipient</th>
                   <th className="px-3 py-3">Campaign</th>
+                  <th className="px-3 py-3">Recipient</th>
                   <th className="px-3 py-3">Opens</th>
                   <th className="px-3 py-3">Clicks</th>
                   <th className="px-3 py-3">Image source</th>
@@ -313,11 +259,11 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
               <tbody>
                 {recipientPage.rows.map((recipient) => (
                   <tr key={recipient.id} className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="px-3 py-4 text-slate-600 dark:text-slate-300">{recipient.campaignName}</td>
                     <td className="px-3 py-4">
                       <p className="font-medium">{recipient.email || recipient.label || "Untitled pixel"}</p>
                       <p className="mt-1 font-mono text-xs text-slate-500">{recipient.trackingId}</p>
                     </td>
-                    <td className="px-3 py-4 text-slate-600 dark:text-slate-300">{recipient.campaignName}</td>
                     <td className="px-3 py-4">
                       <span className="font-semibold">{recipient.totalOpens}</span>
                       <span className="text-slate-500"> total</span>
@@ -378,36 +324,6 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-3">
-          {campaigns.map((campaign) => (
-            <article key={campaign.id} className={`${cardClass()} p-5`}>
-              <h3 className="font-semibold">{campaign.name}</h3>
-              <p className="mt-2 line-clamp-2 min-h-10 text-sm text-slate-500 dark:text-slate-400">{campaign.description || "No description"}</p>
-              <div className="mt-4 grid grid-cols-5 gap-2 text-center text-sm">
-                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
-                  <p className="font-semibold">{campaign.recipients}</p>
-                  <p className="text-xs text-slate-500">Pixels</p>
-                </div>
-                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
-                  <p className="font-semibold">{campaign.totalOpens}</p>
-                  <p className="text-xs text-slate-500">Opens</p>
-                </div>
-                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
-                  <p className="font-semibold">{campaign.uniqueOpens}</p>
-                  <p className="text-xs text-slate-500">Unique</p>
-                </div>
-                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
-                  <p className="font-semibold">{campaign.totalClicks}</p>
-                  <p className="text-xs text-slate-500">Clicks</p>
-                </div>
-                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/70">
-                  <p className="font-semibold">{campaign.uniqueClicks}</p>
-                  <p className="text-xs text-slate-500">Unique</p>
-                </div>
-              </div>
-            </article>
-          ))}
-        </section>
       </div>
     </main>
   );

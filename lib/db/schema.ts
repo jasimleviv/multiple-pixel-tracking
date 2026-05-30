@@ -131,6 +131,20 @@ export const uniqueClicks = pgTable(
   }),
 );
 
+export const ignoredClients = pgTable(
+  "ignored_clients",
+  {
+    id: serial("id").primaryKey(),
+    ipAddress: varchar("ip_address", { length: 96 }).notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    clientIdx: uniqueIndex("ignored_clients_ip_user_agent_idx").on(table.ipAddress, table.userAgent),
+    ipIdx: index("ignored_clients_ip_address_idx").on(table.ipAddress),
+  }),
+);
+
 export type Campaign = typeof campaigns.$inferSelect;
 export type Recipient = typeof recipients.$inferSelect;
 export type OpenEvent = typeof openEvents.$inferSelect;

@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createCampaign } from "@/lib/tracking";
+import { createCampaign, ignoreTrackingClient, reincludeTrackingClient } from "@/lib/tracking";
 import { createSession } from "@/lib/auth";
 
 export async function createCampaignAction(formData: FormData) {
@@ -14,6 +14,20 @@ export async function createCampaignAction(formData: FormData) {
 
   revalidatePath("/");
   redirect("/?created=1");
+}
+
+export async function excludeTrackingClientAction(formData: FormData) {
+  await ignoreTrackingClient({
+    ipAddress: String(formData.get("ipAddress") ?? ""),
+    userAgent: String(formData.get("userAgent") ?? "") || null,
+  });
+
+  revalidatePath("/");
+}
+
+export async function reincludeTrackingClientAction(formData: FormData) {
+  await reincludeTrackingClient(Number(formData.get("id")));
+  revalidatePath("/");
 }
 
 export async function loginAction(formData: FormData) {

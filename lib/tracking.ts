@@ -1,16 +1,17 @@
 import { and, desc, eq, gte, ilike, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, isDatabaseConfigured } from "@/lib/db";
-import { campaigns, clickEvents, openEvents, recipients, uniqueClicks, uniqueOpens } from "@/lib/db/schema";
+import { campaigns, clickEvents, ignoredClients, openEvents, recipients, uniqueClicks, uniqueOpens } from "@/lib/db/schema";
 import {
-  localCampaigns,
   localCreateCampaign,
   localCsvRows,
   localDashboardData,
   localGetClickDestination,
+  localIgnoreClient,
   localRecipients,
   localRecordClick,
   localRecordOpen,
+  localRemoveIgnoredClient,
 } from "@/lib/local-store";
 import { getBaseUrl, trackingPixelHtml } from "@/lib/utils";
 
@@ -64,6 +65,10 @@ function parseRecipientLines(input?: string) {
       label: emailMatch ? line.replace(emailMatch[0], "").trim() || null : line || `Pixel ${index + 1}`,
     };
   });
+}
+
+function normalizeUserAgent(userAgent: string | null) {
+  return userAgent?.trim() || null;
 }
 
 export function pixelUrl(trackingId: string) {
@@ -129,6 +134,60 @@ export async function createCampaign(formData: FormData) {
   return { ok: true, message: "Campaign created" };
 }
 
+export async function ignoreTrackingClient(input: { ipAddress: string; userAgent: string | null }) {
+  const ipAddress = input.ipAddress.trim();
+  const userAgent = normalizeUserAgent(input.userAgent);
+
+  if (!ipAddress) {
+    return;
+  }
+
+  if (!isDatabaseConfigured()) {
+    await localIgnoreClient({ ipAddress, userAgent });
+    return;
+  }
+
+  const [existing] = await db
+    .select({ id: ignoredClients.id })
+    .from(ignoredClients)
+    .where(eq(ignoredClients.ipAddress, ipAddress))
+    .limit(1);
+
+  if (existing) {
+    return;
+  }
+
+  await db
+    .insert(ignoredClients)
+    .values({ ipAddress, userAgent })
+    .onConflictDoNothing({
+      target: [ignoredClients.ipAddress, ignoredClients.userAgent],
+    });
+}
+
+export async function reincludeTrackingClient(id: number) {
+  if (!Number.isInteger(id) || id < 1) {
+    return;
+  }
+
+  if (!isDatabaseConfigured()) {
+    await localRemoveIgnoredClient(id);
+    return;
+  }
+
+  await db.delete(ignoredClients).where(eq(ignoredClients.id, id));
+}
+
+async function isIgnoredClient(ipAddress: string) {
+  const [ignored] = await db
+    .select({ id: ignoredClients.id })
+    .from(ignoredClients)
+    .where(eq(ignoredClients.ipAddress, ipAddress))
+    .limit(1);
+
+  return Boolean(ignored);
+}
+
 export async function recordOpen(input: {
   trackingId: string;
   ipAddress: string;
@@ -136,13 +195,19 @@ export async function recordOpen(input: {
   country?: string | null;
 }) {
   if (!isDatabaseConfigured()) {
-    await localRecordOpen(input);
+    await localRecordOpen({ ...input, userAgent: normalizeUserAgent(input.userAgent) });
     return;
   }
 
   const trackingId = input.trackingId.trim();
 
   if (!isValidTrackingId(trackingId)) {
+    return;
+  }
+
+  const userAgent = normalizeUserAgent(input.userAgent);
+
+  if (await isIgnoredClient(input.ipAddress)) {
     return;
   }
 
@@ -159,7 +224,7 @@ export async function recordOpen(input: {
     await db.insert(openEvents).values({
       trackingId,
       ipAddress: input.ipAddress,
-      userAgent: input.userAgent,
+      userAgent,
       country: input.country ?? null,
       isUnique: false,
     });
@@ -173,7 +238,7 @@ export async function recordOpen(input: {
       recipientId: recipient.id,
       campaignId: recipient.campaignId,
       ipAddress: input.ipAddress,
-      userAgent: input.userAgent,
+      userAgent,
     })
     .onConflictDoNothing({
       target: [uniqueOpens.trackingId, uniqueOpens.ipAddress],
@@ -185,7 +250,7 @@ export async function recordOpen(input: {
     recipientId: recipient.id,
     campaignId: recipient.campaignId,
     ipAddress: input.ipAddress,
-    userAgent: input.userAgent,
+    userAgent,
     country: input.country ?? null,
     isUnique: insertedUnique.length > 0,
   });
@@ -198,7 +263,7 @@ export async function recordClick(input: {
   country?: string | null;
 }) {
   if (!isDatabaseConfigured()) {
-    return localRecordClick(input);
+    return localRecordClick({ ...input, userAgent: normalizeUserAgent(input.userAgent) });
   }
 
   const trackingId = input.trackingId.trim();
@@ -206,6 +271,8 @@ export async function recordClick(input: {
   if (!isValidTrackingId(trackingId)) {
     return getBaseUrl();
   }
+
+  const userAgent = normalizeUserAgent(input.userAgent);
 
   const [recipient] = await db
     .select({
@@ -220,11 +287,15 @@ export async function recordClick(input: {
 
   const destinationUrl = recipient?.clickUrl || getBaseUrl();
 
+  if (await isIgnoredClient(input.ipAddress)) {
+    return destinationUrl;
+  }
+
   if (!recipient) {
     await db.insert(clickEvents).values({
       trackingId,
       ipAddress: input.ipAddress,
-      userAgent: input.userAgent,
+      userAgent,
       country: input.country ?? null,
       destinationUrl,
       isUnique: false,
@@ -239,7 +310,7 @@ export async function recordClick(input: {
       recipientId: recipient.id,
       campaignId: recipient.campaignId,
       ipAddress: input.ipAddress,
-      userAgent: input.userAgent,
+      userAgent,
     })
     .onConflictDoNothing({
       target: [uniqueClicks.trackingId, uniqueClicks.ipAddress],
@@ -251,7 +322,7 @@ export async function recordClick(input: {
     recipientId: recipient.id,
     campaignId: recipient.campaignId,
     ipAddress: input.ipAddress,
-    userAgent: input.userAgent,
+    userAgent,
     country: input.country ?? null,
     destinationUrl,
     isUnique: insertedUnique.length > 0,
@@ -293,6 +364,20 @@ function dateFilters(range: DateRange, column: typeof openEvents.openedAt | type
   return filters;
 }
 
+function notIgnoredOpenFilter() {
+  return sql<boolean>`not exists (
+    select 1 from ${ignoredClients}
+    where ${ignoredClients.ipAddress} = ${openEvents.ipAddress}
+  )`;
+}
+
+function notIgnoredClickFilter() {
+  return sql<boolean>`not exists (
+    select 1 from ${ignoredClients}
+    where ${ignoredClients.ipAddress} = ${clickEvents.ipAddress}
+  )`;
+}
+
 export async function getDashboardData(range: DateRange = {}) {
   if (!isDatabaseConfigured()) {
     return localDashboardData(range);
@@ -300,26 +385,19 @@ export async function getDashboardData(range: DateRange = {}) {
 
   const openFilters = dateFilters(range, openEvents.openedAt);
   const clickFilters = dateFilters(range, clickEvents.clickedAt);
-  const openWhere = openFilters.length ? and(...openFilters) : undefined;
-  const clickWhere = clickFilters.length ? and(...clickFilters) : undefined;
+  const openWhere = and(...openFilters, notIgnoredOpenFilter());
+  const clickWhere = and(...clickFilters, notIgnoredClickFilter());
 
-  const [totals] = await db
+  const ignoredClientRows = await db
     .select({
-      totalOpens: sql<number>`count(*)::int`,
-      uniqueOpens: sql<number>`count(*) filter (where ${openEvents.isUnique} = true)::int`,
+      id: ignoredClients.id,
+      ipAddress: ignoredClients.ipAddress,
+      userAgent: ignoredClients.userAgent,
+      createdAt: ignoredClients.createdAt,
     })
-    .from(openEvents)
-    .where(openWhere);
-
-  const [clickTotals] = await db
-    .select({
-      totalClicks: sql<number>`count(*)::int`,
-      uniqueClicks: sql<number>`count(*) filter (where ${clickEvents.isUnique} = true)::int`,
-    })
-    .from(clickEvents)
-    .where(clickWhere);
-
-  const [recipientCount] = await db.select({ count: sql<number>`count(*)::int` }).from(recipients);
+    .from(ignoredClients)
+    .orderBy(desc(ignoredClients.createdAt))
+    .limit(12);
 
   const latestOpens = await db
     .select({
@@ -358,74 +436,11 @@ export async function getDashboardData(range: DateRange = {}) {
     .orderBy(desc(clickEvents.clickedAt))
     .limit(12);
 
-  const opensByDay = await db
-    .select({
-      day: sql<string>`to_char(date_trunc('day', ${openEvents.openedAt}), 'YYYY-MM-DD')`,
-      opens: sql<number>`count(*)::int`,
-      unique: sql<number>`count(*) filter (where ${openEvents.isUnique} = true)::int`,
-    })
-    .from(openEvents)
-    .where(openWhere)
-    .groupBy(sql`date_trunc('day', ${openEvents.openedAt})`)
-    .orderBy(sql`date_trunc('day', ${openEvents.openedAt})`);
-
-  const topUserAgents = await db
-    .select({
-      userAgent: sql<string>`coalesce(${openEvents.userAgent}, 'Unknown')`,
-      opens: sql<number>`count(*)::int`,
-    })
-    .from(openEvents)
-    .where(openWhere)
-    .groupBy(sql`coalesce(${openEvents.userAgent}, 'Unknown')`)
-    .orderBy(sql`count(*) desc`)
-    .limit(6);
-
-  const duplicateOpens = (totals?.totalOpens ?? 0) - (totals?.uniqueOpens ?? 0);
-  const duplicateClicks = (clickTotals?.totalClicks ?? 0) - (clickTotals?.uniqueClicks ?? 0);
-  const openRate = recipientCount.count ? ((totals?.uniqueOpens ?? 0) / recipientCount.count) * 100 : 0;
-  const clickRate = recipientCount.count ? ((clickTotals?.uniqueClicks ?? 0) / recipientCount.count) * 100 : 0;
-
   return {
-    totalOpens: totals?.totalOpens ?? 0,
-    uniqueOpens: totals?.uniqueOpens ?? 0,
-    duplicateOpens,
-    totalClicks: clickTotals?.totalClicks ?? 0,
-    uniqueClicks: clickTotals?.uniqueClicks ?? 0,
-    duplicateClicks,
-    openRate,
-    clickRate,
-    recipientCount: recipientCount.count,
+    ignoredClients: ignoredClientRows,
     latestOpens,
     latestClicks,
-    opensByDay,
-    topUserAgents,
   };
-}
-
-export async function getCampaigns() {
-  if (!isDatabaseConfigured()) {
-    return localCampaigns();
-  }
-
-  return db
-    .select({
-      id: campaigns.id,
-      name: campaigns.name,
-      description: campaigns.description,
-      createdAt: campaigns.createdAt,
-      recipients: sql<number>`count(distinct ${recipients.id})::int`,
-      totalOpens: sql<number>`count(distinct ${openEvents.id})::int`,
-      uniqueOpens: sql<number>`count(distinct ${openEvents.id}) filter (where ${openEvents.isUnique} = true)::int`,
-      totalClicks: sql<number>`count(distinct ${clickEvents.id})::int`,
-      uniqueClicks: sql<number>`count(distinct ${clickEvents.id}) filter (where ${clickEvents.isUnique} = true)::int`,
-    })
-    .from(campaigns)
-    .leftJoin(recipients, eq(recipients.campaignId, campaigns.id))
-    .leftJoin(openEvents, eq(openEvents.campaignId, campaigns.id))
-    .leftJoin(clickEvents, eq(clickEvents.campaignId, campaigns.id))
-    .groupBy(campaigns.id)
-    .orderBy(desc(campaigns.createdAt))
-    .limit(12);
 }
 
 export async function getRecipients(range: DateRange = {}) {
@@ -447,10 +462,10 @@ export async function getRecipients(range: DateRange = {}) {
       trackingId: recipients.trackingId,
       campaignName: campaigns.name,
       createdAt: recipients.createdAt,
-      totalOpens: sql<number>`count(distinct ${openEvents.id})::int`,
-      uniqueOpens: sql<number>`count(distinct ${openEvents.id}) filter (where ${openEvents.isUnique} = true)::int`,
-      totalClicks: sql<number>`count(distinct ${clickEvents.id})::int`,
-      uniqueClicks: sql<number>`count(distinct ${clickEvents.id}) filter (where ${clickEvents.isUnique} = true)::int`,
+      totalOpens: sql<number>`count(distinct ${openEvents.id}) filter (where ${notIgnoredOpenFilter()})::int`,
+      uniqueOpens: sql<number>`count(distinct ${openEvents.id}) filter (where ${openEvents.isUnique} = true and ${notIgnoredOpenFilter()})::int`,
+      totalClicks: sql<number>`count(distinct ${clickEvents.id}) filter (where ${notIgnoredClickFilter()})::int`,
+      uniqueClicks: sql<number>`count(distinct ${clickEvents.id}) filter (where ${clickEvents.isUnique} = true and ${notIgnoredClickFilter()})::int`,
     })
     .from(recipients)
     .leftJoin(campaigns, eq(recipients.campaignId, campaigns.id))
@@ -501,7 +516,7 @@ export async function getCsvRows(range: DateRange = {}) {
     .from(openEvents)
     .leftJoin(campaigns, eq(openEvents.campaignId, campaigns.id))
     .leftJoin(recipients, eq(openEvents.recipientId, recipients.id))
-    .where(dateFilters(range, openEvents.openedAt).length ? and(...dateFilters(range, openEvents.openedAt)) : undefined)
+    .where(and(...dateFilters(range, openEvents.openedAt), notIgnoredOpenFilter()))
     .orderBy(desc(openEvents.openedAt))
     .limit(5000);
 
@@ -520,7 +535,7 @@ export async function getCsvRows(range: DateRange = {}) {
     .from(clickEvents)
     .leftJoin(campaigns, eq(clickEvents.campaignId, campaigns.id))
     .leftJoin(recipients, eq(clickEvents.recipientId, recipients.id))
-    .where(dateFilters(range, clickEvents.clickedAt).length ? and(...dateFilters(range, clickEvents.clickedAt)) : undefined)
+    .where(and(...dateFilters(range, clickEvents.clickedAt), notIgnoredClickFilter()))
     .orderBy(desc(clickEvents.clickedAt))
     .limit(5000);
 
