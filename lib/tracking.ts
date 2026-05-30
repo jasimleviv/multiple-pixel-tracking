@@ -15,7 +15,7 @@ import {
   localRemoveIgnoredClient,
   localResetRecipientReport,
 } from "@/lib/local-store";
-import { getBaseUrl, trackingPixelHtml } from "@/lib/utils";
+import { clientFingerprint, getBaseUrl, trackingPixelHtml } from "@/lib/utils";
 
 export const campaignSchema = z.object({
   name: z.string().trim().min(2, "Campaign name is required").max(160),
@@ -34,6 +34,21 @@ export type DateRange = {
   to?: string;
   q?: string;
   page?: number;
+};
+
+export type CsvEventRow = {
+  eventType: "open" | "click";
+  eventAt: Date;
+  trackingId: string;
+  campaignName: string | null;
+  email: string | null;
+  label: string | null;
+  ipAddress: string;
+  country: string | null;
+  userAgent: string | null;
+  clientFingerprint: string;
+  destinationUrl: string | null;
+  isUnique: boolean;
 };
 
 function randomId(bytes = 9) {
@@ -575,7 +590,7 @@ export async function getRecipients(range: DateRange = {}) {
   };
 }
 
-export async function getCsvRows(range: DateRange = {}) {
+export async function getCsvRows(range: DateRange = {}): Promise<CsvEventRow[]> {
   if (!isDatabaseConfigured()) {
     return localCsvRows(range);
   }
@@ -583,13 +598,15 @@ export async function getCsvRows(range: DateRange = {}) {
   const openRows = await db
     .select({
       eventType: sql<string>`'open'`,
-      openedAt: openEvents.openedAt,
+      eventAt: openEvents.openedAt,
       trackingId: openEvents.trackingId,
       campaignName: campaigns.name,
       email: recipients.email,
       label: recipients.label,
       ipAddress: openEvents.ipAddress,
+      country: openEvents.country,
       userAgent: openEvents.userAgent,
+      destinationUrl: sql<string | null>`null`,
       isUnique: openEvents.isUnique,
     })
     .from(openEvents)
@@ -602,13 +619,15 @@ export async function getCsvRows(range: DateRange = {}) {
   const clickRows = await db
     .select({
       eventType: sql<string>`'click'`,
-      openedAt: clickEvents.clickedAt,
+      eventAt: clickEvents.clickedAt,
       trackingId: clickEvents.trackingId,
       campaignName: campaigns.name,
       email: recipients.email,
       label: recipients.label,
       ipAddress: clickEvents.ipAddress,
+      country: clickEvents.country,
       userAgent: clickEvents.userAgent,
+      destinationUrl: clickEvents.destinationUrl,
       isUnique: clickEvents.isUnique,
     })
     .from(clickEvents)
@@ -619,6 +638,20 @@ export async function getCsvRows(range: DateRange = {}) {
     .limit(5000);
 
   return [...openRows, ...clickRows]
-    .sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime())
+    .map((row) => {
+      const eventType: CsvEventRow["eventType"] = row.eventType === "click" ? "click" : "open";
+
+      return {
+        ...row,
+        eventType,
+        clientFingerprint: clientFingerprint({
+          eventType,
+          trackingId: row.trackingId,
+          ipAddress: row.ipAddress,
+          userAgent: row.userAgent,
+        }),
+      } satisfies CsvEventRow;
+    })
+    .sort((a, b) => b.eventAt.getTime() - a.eventAt.getTime())
     .slice(0, 5000);
 }

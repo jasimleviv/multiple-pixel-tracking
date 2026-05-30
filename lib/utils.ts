@@ -1,4 +1,5 @@
 import { clsx, type ClassValue } from "clsx";
+import { createHash } from "crypto";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -21,4 +22,15 @@ export function getBaseUrl() {
 
 export function trackingPixelHtml(url: string) {
   return `<img src="${url}" width="1" height="1" alt="" style="display:block;border:0;outline:0;" />`;
+}
+
+export function clientFingerprint(input: {
+  eventType: "open" | "click";
+  trackingId: string;
+  ipAddress: string;
+  userAgent: string | null;
+}) {
+  return createHash("sha256")
+    .update([input.eventType, input.trackingId, input.ipAddress, input.userAgent ?? ""].join("\u001f"))
+    .digest("hex");
 }

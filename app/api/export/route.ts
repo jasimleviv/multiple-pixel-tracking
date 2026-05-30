@@ -28,19 +28,25 @@ export async function GET(request: NextRequest) {
     "email",
     "label",
     "ip_address",
+    "country",
     "user_agent",
+    "client_fingerprint",
+    "destination_url",
     "is_unique",
   ];
   const body = rows.map((row) =>
     [
       row.eventType,
-      row.openedAt,
+      row.eventAt,
       row.trackingId,
       row.campaignName,
       row.email,
       row.label,
       row.ipAddress,
+      row.country,
       row.userAgent,
+      row.clientFingerprint,
+      row.destinationUrl,
       row.isUnique,
     ]
       .map(escapeCsv)
@@ -50,7 +56,7 @@ export async function GET(request: NextRequest) {
   return new Response([header.join(","), ...body].join("\n"), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="email-open-events.csv"`,
+      "Content-Disposition": `attachment; filename="email-open-click-events.csv"`,
       "Cache-Control": "no-store",
     },
   });

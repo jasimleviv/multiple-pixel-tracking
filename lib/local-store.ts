@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { getBaseUrl, trackingPixelHtml } from "@/lib/utils";
+import type { CsvEventRow } from "@/lib/tracking";
+import { clientFingerprint, getBaseUrl, trackingPixelHtml } from "@/lib/utils";
 
 type DateRange = {
   from?: string;
@@ -394,22 +395,31 @@ export async function localRecipients(range: DateRange = {}) {
   };
 }
 
-export async function localCsvRows(range: DateRange = {}) {
+export async function localCsvRows(range: DateRange = {}): Promise<CsvEventRow[]> {
   const store = await readStore();
 
   const openRows = visibleOpens(store, range).map((event) => {
     const recipient = store.recipients.find((row) => row.id === event.recipientId);
     const campaign = store.campaigns.find((row) => row.id === event.campaignId);
+    const eventType = "open" as const;
 
     return {
-      eventType: "open",
-      openedAt: new Date(event.openedAt),
+      eventType,
+      eventAt: new Date(event.openedAt),
       trackingId: event.trackingId,
       campaignName: campaign?.name ?? null,
       email: recipient?.email ?? null,
       label: recipient?.label ?? null,
       ipAddress: event.ipAddress,
+      country: event.country,
       userAgent: event.userAgent,
+      clientFingerprint: clientFingerprint({
+        eventType,
+        trackingId: event.trackingId,
+        ipAddress: event.ipAddress,
+        userAgent: event.userAgent,
+      }),
+      destinationUrl: null,
       isUnique: event.isUnique,
     };
   });
@@ -417,19 +427,28 @@ export async function localCsvRows(range: DateRange = {}) {
   const clickRows = visibleClicks(store, range).map((event) => {
     const recipient = store.recipients.find((row) => row.id === event.recipientId);
     const campaign = store.campaigns.find((row) => row.id === event.campaignId);
+    const eventType = "click" as const;
 
     return {
-      eventType: "click",
-      openedAt: new Date(event.clickedAt),
+      eventType,
+      eventAt: new Date(event.clickedAt),
       trackingId: event.trackingId,
       campaignName: campaign?.name ?? null,
       email: recipient?.email ?? null,
       label: recipient?.label ?? null,
       ipAddress: event.ipAddress,
+      country: event.country,
       userAgent: event.userAgent,
+      clientFingerprint: clientFingerprint({
+        eventType,
+        trackingId: event.trackingId,
+        ipAddress: event.ipAddress,
+        userAgent: event.userAgent,
+      }),
+      destinationUrl: event.destinationUrl,
       isUnique: event.isUnique,
     };
   });
 
-  return [...openRows, ...clickRows].sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
+  return [...openRows, ...clickRows].sort((a, b) => b.eventAt.getTime() - a.eventAt.getTime());
 }
