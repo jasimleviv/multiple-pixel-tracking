@@ -81,7 +81,10 @@ export function RecipientActions({ recipientId, recipientName, campaignName }: R
               >
                 Cancel
               </button>
-              <form action={pendingAction === "reset" ? resetRecipientReportAction : deleteRecipientTrackingAction}>
+              <form
+                action={pendingAction === "reset" ? resetRecipientReportAction : deleteRecipientTrackingAction}
+                onSubmit={() => setPendingAction(null)}
+              >
                 <input type="hidden" name="recipientId" value={recipientId} />
                 <button
                   className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition ${
