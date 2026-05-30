@@ -6,12 +6,14 @@ import {
   localCreateCampaign,
   localCsvRows,
   localDashboardData,
+  localDeleteRecipientTracking,
   localGetClickDestination,
   localIgnoreClient,
   localRecipients,
   localRecordClick,
   localRecordOpen,
   localRemoveIgnoredClient,
+  localResetRecipientReport,
 } from "@/lib/local-store";
 import { getBaseUrl, trackingPixelHtml } from "@/lib/utils";
 
@@ -176,6 +178,83 @@ export async function reincludeTrackingClient(id: number) {
   }
 
   await db.delete(ignoredClients).where(eq(ignoredClients.id, id));
+}
+
+export async function resetRecipientReport(recipientId: number) {
+  if (!Number.isInteger(recipientId) || recipientId < 1) {
+    return;
+  }
+
+  if (!isDatabaseConfigured()) {
+    await localResetRecipientReport(recipientId);
+    return;
+  }
+
+  const [recipient] = await db
+    .select({ trackingId: recipients.trackingId })
+    .from(recipients)
+    .where(eq(recipients.id, recipientId))
+    .limit(1);
+
+  if (!recipient) {
+    return;
+  }
+
+  await Promise.all([
+    db.delete(openEvents).where(eq(openEvents.trackingId, recipient.trackingId)),
+    db.delete(clickEvents).where(eq(clickEvents.trackingId, recipient.trackingId)),
+    db.delete(uniqueOpens).where(eq(uniqueOpens.trackingId, recipient.trackingId)),
+    db.delete(uniqueClicks).where(eq(uniqueClicks.trackingId, recipient.trackingId)),
+  ]);
+}
+
+export async function deleteRecipientTracking(recipientId: number) {
+  if (!Number.isInteger(recipientId) || recipientId < 1) {
+    return;
+  }
+
+  if (!isDatabaseConfigured()) {
+    await localDeleteRecipientTracking(recipientId);
+    return;
+  }
+
+  const [recipient] = await db
+    .select({
+      id: recipients.id,
+      campaignId: recipients.campaignId,
+      trackingId: recipients.trackingId,
+    })
+    .from(recipients)
+    .where(eq(recipients.id, recipientId))
+    .limit(1);
+
+  if (!recipient) {
+    return;
+  }
+
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(recipients)
+    .where(eq(recipients.campaignId, recipient.campaignId));
+
+  if (count <= 1) {
+    await Promise.all([
+      db.delete(openEvents).where(eq(openEvents.campaignId, recipient.campaignId)),
+      db.delete(clickEvents).where(eq(clickEvents.campaignId, recipient.campaignId)),
+      db.delete(uniqueOpens).where(eq(uniqueOpens.campaignId, recipient.campaignId)),
+      db.delete(uniqueClicks).where(eq(uniqueClicks.campaignId, recipient.campaignId)),
+    ]);
+    await db.delete(campaigns).where(eq(campaigns.id, recipient.campaignId));
+    return;
+  }
+
+  await Promise.all([
+    db.delete(openEvents).where(eq(openEvents.trackingId, recipient.trackingId)),
+    db.delete(clickEvents).where(eq(clickEvents.trackingId, recipient.trackingId)),
+    db.delete(uniqueOpens).where(eq(uniqueOpens.trackingId, recipient.trackingId)),
+    db.delete(uniqueClicks).where(eq(uniqueClicks.trackingId, recipient.trackingId)),
+  ]);
+  await db.delete(recipients).where(eq(recipients.id, recipient.id));
 }
 
 async function isIgnoredClient(ipAddress: string) {

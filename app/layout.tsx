@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PixelTrack - Email Open Analytics",
-  description: "Track email opens with 1x1 GIF pixels and Vercel Postgres.",
+  title: "PixelTrack - Email Open & Click Analytics",
+  description: "Track email opens with 1x1 GIF pixels, email click with wrapper link and Vercel Postgres.",
 };
 
 export default function RootLayout({

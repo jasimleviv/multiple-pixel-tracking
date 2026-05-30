@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { createCampaignAction, excludeTrackingClientAction, reincludeTrackingClientAction } from "@/app/actions";
 import { CopyButton } from "@/components/copy-button";
+import { RecipientActions } from "@/components/recipient-actions";
 import { isAuthenticated, isAuthConfigured } from "@/lib/auth";
 import { getDashboardData, getRecipients } from "@/lib/tracking";
 import { isDatabaseConfigured } from "@/lib/db";
@@ -74,7 +75,7 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
               </span>
               PixelTrack
             </div>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Email open analytics</h1>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Email open & click analytics</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
               Create short campaign pixels and tracked links, then measure unique opens and clicks without counting repeated IPs twice.
             </p>
@@ -244,7 +245,7 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
             </form>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left text-sm">
+            <table className="w-full min-w-[960px] text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-3">Campaign</th>
@@ -252,8 +253,8 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                   <th className="px-3 py-3">Opens</th>
                   <th className="px-3 py-3">Clicks</th>
                   <th className="px-3 py-3">Image source</th>
-                  <th className="px-3 py-3">HTML</th>
                   <th className="px-3 py-3">Click URL</th>
+                  <th className="px-3 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -277,19 +278,26 @@ export default async function Home(props: { searchParams: Promise<HomeSearchPara
                       <span className="text-slate-500"> unique</span>
                     </td>
                     <td className="px-3 py-4">
-                      <div className="flex max-w-xs items-center gap-2">
-                        <code className="truncate rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{recipient.pixelUrl}</code>
-                        <CopyButton value={recipient.pixelUrl} label="Src" />
+                      <div className="flex max-w-[15rem] flex-col items-start gap-2">
+                        <code className="w-full truncate rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{recipient.pixelUrl}</code>
+                        <div className="flex items-center gap-2">
+                          <CopyButton value={recipient.pixelUrl} label="Src" />
+                          <CopyButton value={recipient.pixelHtml} label="HTML" />
+                        </div>
                       </div>
                     </td>
                     <td className="px-3 py-4">
-                      <CopyButton value={recipient.pixelHtml} label="HTML" />
-                    </td>
-                    <td className="px-3 py-4">
-                      <div className="flex max-w-xs items-center gap-2">
-                        <code className="truncate rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{recipient.clickUrl}</code>
+                      <div className="flex max-w-[15rem] flex-col items-start gap-2">
+                        <code className="w-full truncate rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{recipient.clickUrl}</code>
                         <CopyButton value={recipient.clickUrl} label="Click" />
                       </div>
+                    </td>
+                    <td className="px-3 py-4">
+                      <RecipientActions
+                        recipientId={recipient.id}
+                        recipientName={recipient.email || recipient.label || "Untitled pixel"}
+                        campaignName={recipient.campaignName}
+                      />
                     </td>
                   </tr>
                 ))}

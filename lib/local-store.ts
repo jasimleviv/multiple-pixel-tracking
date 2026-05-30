@@ -151,6 +151,49 @@ export async function localRemoveIgnoredClient(id: number) {
   }
 }
 
+export async function localResetRecipientReport(recipientId: number) {
+  const store = await readStore();
+  const recipient = store.recipients.find((row) => row.id === recipientId);
+
+  if (!recipient) {
+    return;
+  }
+
+  await writeStore({
+    ...store,
+    openEvents: store.openEvents.filter((event) => event.trackingId !== recipient.trackingId),
+    clickEvents: store.clickEvents.filter((event) => event.trackingId !== recipient.trackingId),
+  });
+}
+
+export async function localDeleteRecipientTracking(recipientId: number) {
+  const store = await readStore();
+  const recipient = store.recipients.find((row) => row.id === recipientId);
+
+  if (!recipient) {
+    return;
+  }
+
+  const campaignRecipientCount = store.recipients.filter((row) => row.campaignId === recipient.campaignId).length;
+  const deleteCampaign = campaignRecipientCount <= 1;
+
+  await writeStore({
+    campaigns: deleteCampaign
+      ? store.campaigns.filter((campaign) => campaign.id !== recipient.campaignId)
+      : store.campaigns,
+    recipients: deleteCampaign
+      ? store.recipients.filter((row) => row.campaignId !== recipient.campaignId)
+      : store.recipients.filter((row) => row.id !== recipient.id),
+    openEvents: store.openEvents.filter((event) =>
+      deleteCampaign ? event.campaignId !== recipient.campaignId : event.trackingId !== recipient.trackingId,
+    ),
+    clickEvents: store.clickEvents.filter((event) =>
+      deleteCampaign ? event.campaignId !== recipient.campaignId : event.trackingId !== recipient.trackingId,
+    ),
+    ignoredClients: store.ignoredClients,
+  });
+}
+
 export async function localCreateCampaign(input: {
   name: string;
   description?: string;
